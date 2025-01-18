@@ -40,22 +40,21 @@ function maskS2clouds(image) {
     .copyProperties(image, ['system:index', 'CLOUDY_PIXEL_PERCENTAGE']);
 }
 
-// S2 images have an scale factor: it transforms float number to integers
-// This is a space reduction technique.
+// Convertir valores enteros en los valores originales de reflectividad
+// Aplicar el "scale factor"
 function scaleFactor(image) {
-  return image.divide(10000).copyProperties(image, ['system:index', 'CLOUDY_PIXEL_PERCENTAGE']);
+  return image
+    .divide(10000)
+    // Mantener info. de la imgn. que se utiliza en el script
+    .copyProperties(image, ['system:index', 'CLOUDY_PIXEL_PERCENTAGE']);
 }
 
-// The namespace for our application. All the state is kept in here.
-var app = {};
+// Iniciar el objeto donde se incluyen las funciones de la app.
+var app = {}; 
 
-// Create a label and slider.
-var label = ui.Label('Light Intensity for Year');
-// var slider = 
-
-/** Creates the UI panels. */
+// Crear paneles principales en el menú izquierdo
 app.createPanels = function() {
-  /* The introduction section. */
+  // Descripción de la APP
   app.intro = {
     panel: ui.Panel([
       ui.Label({
@@ -72,7 +71,7 @@ app.createPanels = function() {
       ])
   };
 
-  /* The collection filter controls. */
+  // Filtros de la colección
   app.filters = {
     cloudMask: ui.Checkbox({label: 'Aplicar mascara de nubes', value: false}),
     startDate: ui.Textbox('YYYY-MM-DD', '2020-05-01'),
@@ -85,7 +84,7 @@ app.createPanels = function() {
     })
   };
 
-  /* The panel for the filter control widgets. */
+  // Texto del panel con los filtros
   app.filters.panel = ui.Panel({
     widgets: [
       ui.Label('1) Filtros', {fontWeight: 'bold'}),
@@ -102,57 +101,63 @@ app.createPanels = function() {
     style: app.SECTION_STYLE
   });
 
-  /* The image picker section. */
+  // Seleccón de las imágenes
   app.picker = {
-    // Create a select with a function that reacts to the "change" event.
     select: ui.Select({
       placeholder: 'Selecciona un ID',
+      // Cuando una imgn. se selecciona, actualiza el mapa para incluirla
       onChange: app.refreshMapLayer
     }),
-    // Create a button that centers the map on a given object.
+    // Botón para centrar el mapa en la imagen
+    // IMPORTANTE: Debe ser cargada la primera
     centerButton: ui.Button('Centrar', function() {
-      Map.centerObject(Map.layers().get(0).get('eeObject'));
+      // Seleccionar la imagen del panel de capas
+      var image = Map.layers().get(0);
+      Map.centerObject(image.get('eeObject'));
     }),
-    // Add a high pass filter (laplacian kernel)
-    highPass: ui.Checkbox({label: 'Aplicar filtro de paso alto', value: false, onChange: app.refreshMapLayer})
+    // Add un filtro de paso alto
+    highPass: ui.Checkbox({
+      label: 'Aplicar filtro de paso alto', 
+      value: false, 
+      onChange: app.refreshMapLayer})
   };
 
-  /* The panel for the picker section with corresponding widgets. */
+  // Panel con las etiquetas de selección de imgns.
   app.picker.panel = ui.Panel({
     widgets: [
       ui.Label('2) Selecciona una imagen', {fontWeight: 'bold'}),
       ui.Panel([
         app.picker.select,
         app.picker.highPass,
-        app.picker.centerButton
-      ], ui.Panel.Layout.flow('vertical'))
+        app.picker.centerButton],
+      ui.Panel.Layout.flow('vertical'))
     ],
     style: app.SECTION_STYLE
   });
 
-  /* The visualization section. */
+  // Panel con opciones de visualización
   app.vis = {
     label: ui.Label(),
-    // Create a select with a function that reacts to the "change" event.
+    // Mostrar composiciones de color prestablecidas
     select: ui.Select({
       items: Object.keys(app.VIS_OPTIONS),
       onChange: function() {
-        // Update the label's value with the select's description.
+        // Cada vez que se cambia el param, actualiza su nombre
         var option = app.VIS_OPTIONS[app.vis.select.getValue()];
         app.vis.label.setValue(option.description);
-        // Refresh the map layer.
+        // Volver a cargar la imagen con la nueva visualización
         app.refreshMapLayer();
       }
     }),
-    // Show NDVI graphic
-    // ndvi: ui.Checkbox({label: 'Ver NDVI', value: false, onChange: app.refreshMapLayer}),
+    // Botón para mostrar los valores de NDVI en lugar de la firma
     ndvi: ui.Checkbox({label: 'Ver NDVI', value: false}),
+    // Filtro de gamma (ajuste de brillo)
     gammaFilter: ui.Slider({
       min: 0, max: 5, step: 0.1, value: 1.1, 
       style: {stretch: 'horizontal'}, onChange: app.refreshMapLayer})
   };
 
-  /* The panel for the visualization section with corresponding widgets. */
+  // Escribir el texto del panel de visualización
   app.vis.panel = ui.Panel({
     widgets: [
       ui.Label('3) Visualización', {fontWeight: 'bold'}),
@@ -163,61 +168,38 @@ app.createPanels = function() {
     ],
     style: app.SECTION_STYLE
   });
+
+  // Seleccionar la primera composición de color
+  app.vis.select.setValue(app.vis.select.items().get(0));
   
+  // Panel en el que se puede filtrar la BBDD LUCAS
   app.lucas = {
-    // Create a select with a function that reacts to the "change" event.
     select: ui.Select({
       placeholder: 'Selecciona una categoría',
       onChange: app.refreshMapLayer
     }),
   };
   
-  /* The panel for the LUCAS BBDD filter. */
+  // Componer el panel con el filtro para la capa LUCAS
   app.lucas.panel = ui.Panel({
     widgets: [
       ui.Label('4) Filtro LUCAS', {fontWeight: 'bold'}),
       app.lucas.select,
     ],
+    // Add un margen inferior elevado para que el desplegable con las
+    // clases a filtrar sea mayor
     style: {margin: '20px 0 80px 0'}
   });
-
-  // Default the select to the first value.
-  app.vis.select.setValue(app.vis.select.items().get(0));
-
-  /* The export section. */
-  app.export = {
-    button: ui.Button({
-      label: 'Export the current image to Drive',
-      // React to the button's click event.
-      onClick: function() {
-        // Select the full image id.
-        var imageIdTrailer = app.picker.select.getValue();
-        var imageId = app.COLLECTION_ID + '/' + imageIdTrailer;
-        // Get the visualization options.
-        var visOption = app.VIS_OPTIONS[app.vis.select.getValue()];
-        // Export the image to Drive.
-        Export.image.toDrive({
-          image: ee.Image(imageId).select(visOption.visParams.bands),
-          description: 'L8_Export-' + imageIdTrailer,
-        });
-      }
-    })
-  };
-
-  /* The panel for the export section with corresponding widgets. */
-  app.export.panel = ui.Panel({
-    widgets: [
-      ui.Label('4) Start an export', {fontWeight: 'bold'}),
-      app.export.button
-    ],
-    style: app.SECTION_STYLE
-  });
+  
 };
 
-/** Creates the app helper functions. */
+// Crear las funciones principales
 app.createHelpers = function() {
   /**
-   * Enables or disables loading mode.
+   * Detectar si la API esta aplicando los filtros a las imgs.
+   * En este caso, evitar que se utilicen las funciones que
+   * interactuan con las imgs. para que no haya errores.
+   * TODO: Mejorar todo el sistema de "LoadingMode"
    * @param {boolean} enabled Whether loading mode is enabled.
    */
   app.setLoadingMode = function(enabled) {
@@ -227,7 +209,6 @@ app.createHelpers = function() {
     var loadDependentWidgets = [
       app.vis.select,
       app.vis.ndvi,
-      // app.vis.gammaFilter,
       app.filters.startDate,
       app.filters.endDate,
       app.filters.applyButton,
@@ -243,86 +224,103 @@ app.createHelpers = function() {
     });
   };
   
-  /** Applies the selection filters currently selected in the UI. */
+  // Aplicar los filtros
   app.applyFilters = function() {
-    
+    // Activar las dependencias
     app.setLoadingMode(true);
     
-    // Get the list of Lucas classes.
+    // Seleccionar la lista de etiquetas LUCAS
     var computedLucasCls = LUCAS
-        .reduceColumns(ee.Reducer.toList(), ['LC_LABEL'])
+        .reduceColumns(ee.Reducer.toList(), ['lc1_label'])
         .get('list');
-
-    ee.List(computedLucasCls).distinct().evaluate(function(cls) {
-
-      // Update the lucas picker with the given list of cls.
-      app.lucas.select.items().reset(cls);
-      // Default the lucas picker to the first cls.
-      app.lucas.select.setValue(app.lucas.select.items().get(0));
-
+    // Add una opción para mantener todas las etiquetas LUCAS
+    computedLucasCls = ee.List(computedLucasCls).insert(0, "Ninguno");
+    // Seleccionar el conjunto de etiquetas (sin repeticiones)
+    ee.List(computedLucasCls).distinct().evaluate(
+      // Incluirlas en la selección del filtro LUCAS
+      function(cls) {
+        // Update lucas picker with the given list of cls.
+        app.lucas.select.items().reset(cls);
+        // Default the lucas picker to the first cls.
+        app.lucas.select.setValue(app.lucas.select.items().get(0));
     });
-    
-    var filtered = ee.ImageCollection(app.COLLECTION_ID);
-    // Filter bounds to the map center.
-    filtered = filtered.filterBounds(Map.getCenter());
-    // Apply cloud filter to get less cloudy granules.
+
+    // Seleccionar la imgn. a mostrar en el visor
+    var collection = ee.ImageCollection(app.COLLECTION_ID);
+      // Filtrar por las coordenadas del centro del mapa
+      .filterBounds(Map.getCenter());
+
+    // Aplicar los filtros del panel picker
+    // Filtro de nubes
     if (app.filters.cloudFilter.getValue()) {
+      // Obtener porcentajes
       var cloud_percent = app.filters.cloudFilter.getValue() * 100;
-      filtered = filtered.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',cloud_percent));
+      collection = collection.filter(
+        ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cloud_percent));
     }
 
-    // Set filter variables.
+    // Filtro de fecha
     var start = app.filters.startDate.getValue();
     if (start) start = ee.Date(start);
     var end = app.filters.endDate.getValue();
     if (end) end = ee.Date(end);
-    if (start) filtered = filtered.filterDate(start, end);
+    if (start) collection = collection.filterDate(start, end);
 
-    // Get the list of computed ids.
+    // Obtener una lista con los ids del conjunto de imgs. filtradas
     var computedIds = filtered
         .limit(app.IMAGE_COUNT_LIMIT)
         .reduceColumns(ee.Reducer.toList(), ['system:index'])
         .get('list');
 
-    // Get the date and format it
+    // Obtener la fecha de captura (desde el ID)
     var computedDates = ee.List(computedIds)
       .map(function(id){
+        // Seleccionar la primera parte del ID, que contiene la fecha
         var date = ee.String(id).split('_').get(0);
-        // Replace "T" by space
+        // Actualizar el formato para poder convertirla a ee.Date
         var good_date = ee.String(date).replace("T"," ");
         var eedate = ee.Date.parse('YYYYMMdd HHmmss', good_date);
         return eedate.format('YYYY/MM/dd HH:mm:ss');
       });
-    
+
+    // Incluir la fecha de las imgs. en el panel de selección
     computedDates.evaluate(function(dates) {
-      // Update the image picker with the given list of ids.
+      // Habilitar las funciones de la APP
       app.setLoadingMode(false);
+      // Incluir las fechas en el selector de imgs.
       app.picker.select.items().reset(dates);
-      // Default the image picker to the first id.
+      // Poner por defecto la fecha de la primera imgn. filtrada
       app.picker.select.setValue(app.picker.select.items().get(0));
     });
     
   };
   
-  /** Refreshes the current map layer based on the UI widget states. */
+  /** Actualizar el mapa para aplicar los cambios los paneles de filtros */
   app.refreshMapLayer = function() {
-    
+    // Resetear el mapa principal (eliminar las capas)
     Map.clear();
-    
+
+    // Seleccionar la fecha de la imagen a obtener
     var imageDate = app.picker.select.getValue();
     
     if (imageDate) {
 
-      // Construct the date that image holds in the start of its ID
+      // Transformar la fecha en ee.Date
       var parsedImgDate = ee.Date.parse('YYYY/MM/dd HH:mm:ss', imageDate)
-
+      // Seleccionar la imagen con la misma fecha:
+      // IMPORTANTE: En la col. de Sentinel 2 existen varias imgs. para la misma fecha
+      // (en función de su "TILE". Por ello, para seleccionar la imagen correcta,
+      // además de la fecha de la imagen se utiliza la posición del mapa.
       var strDate = parsedImgDate.format('YYYYMMdd');
       var strTime = parsedImgDate.format('HHmmss');
+      // Modificar la fecha para que coincida con la primera parte del ID de la imagen
+      // (de donde se ha obtenido en un principio)
       var idStarts = ee.String(strDate).cat('T').cat(strTime)
       
-      // If an image date is found, filter again the collection.
+      // Seleccionar la imagen
       var image = ee.ImageCollection(app.COLLECTION_ID)
           .filterBounds(Map.getCenter())
+          // Se obtiene el mismo resultado filtrando por ID que por fecha
           .filter(ee.Filter.stringStartsWith('system:index', idStarts))
           .first();
           
@@ -331,16 +329,18 @@ app.createHelpers = function() {
         image = ee.Image(maskS2clouds(image));
       }
       
-      // Apply scalying factor
+      // Obtener valores de reflectividad
       image = ee.Image(scaleFactor(image));
       
-      // Add the image to the map with the corresponding visualization options.
+      // Cargar la imagen con las opciones de visualización seleccionadas
       var visOption = app.VIS_OPTIONS[app.vis.select.getValue()];
+      // Aplicar el filtro de gamma
       if (app.vis.gammaFilter.getValue()){
         var gamma_value = app.vis.gammaFilter.getValue();
         visOption.visParams.gamma = gamma_value;
       }
-      
+
+      // Utilizar el filtro de paso alto
       if (app.picker.highPass.getValue()){
         // Define a Laplacian, or edge-detection kernel.
         var laplacian = ee.Kernel.laplacian8({ normalize: false });
@@ -351,66 +351,57 @@ app.createHelpers = function() {
       
       Map.addLayer(image, visOption.visParams, imageDate);
     }
-    
+
+    // Cargar los puntos LUCAS con el valor de Land Cover seleccionado
     var lucasId = app.lucas.select.getValue();
-    if (lucasId) {
+    
+    if (lucasId != "Ninguno") {
       Map.addLayer(LUCAS.filter(ee.Filter.eq('LC_LABEL', lucasId)), {}, 'BBDD LUCAS (2018)');
     } else {
       Map.addLayer(LUCAS, {}, 'BBDD LUCAS (2018)');
     }
-    // if (app.picker.insertPAN.getValue()){
-      // Map.addLayer(basemap, {min: 0.0, max: 0.4}, 'L9 Pan (15m) Enero 2022');
-    // }
-
-    // Set the default map's cursor to a "crosshair".
+    // Add CORINE Land Cover
+    var CORINE = ee.Image(app.CORINE_ID).select('landcover');
+    Map.addLayer(CORINE, {}, 'CORINE Land Cover');
+    
+    // Cambiar la apariencia del cursor sobre el mapa
     Map.style().set('cursor', 'crosshair');
     
-    /** Applies the selection filters currently selected in the UI. */
-    // Create an inspector panel with a horizontal layout.
+    // Crear un panel (abajo a la derecha) para mostrar
+    // la firma espectral y el NDVI
     var inspector = ui.Panel({
       layout: ui.Panel.Layout.flow('horizontal'),
       style: {position: 'bottom-right'}
     });
     
-    // Add a label to the panel.
+    // Add una etiqueta descriptiva del panel
     inspector.add(ui.Label('Marca un punto para ver la firma espectral/NDVI'));
     
     // Add the panel to the default map.
     Map.add(inspector);
     
-    // Register a click handler for the map that gets the clicked point
-    // and the LUCAS point (if there is)
+    // La siguiente func. se ejecuta cada vez que el usuario hace un click
+    // sobre la vista de mapa. El evento debe devolver las coordenadas del punto
     function handleMapClick(location){
 
-      // Create location object
+      // Crear un objeto ee con las coordenadas del punto
       var p = ee.Geometry.Point([location.lon,location.lat]);
-      var p_buffer = p.buffer(500);
+      // TODO: Incluir una popup con la info. de LUCAS si existe un punto
+      // sobre la posición seleccionada.
+      // TODO: Crear un punto para mostrar la localización del click
       
-      // Check LUCAS' point properties (if any is selected)
-      var selected_lucas = LUCAS.filterBounds(p_buffer); 
-      print(selected_lucas);
-      selected_lucas.first().evaluate(function(feature){
-        if (feature){
-          inspector.widgets().set(2, feature.get("LC_LABEL"));
-        }
-      })
-      // TODO: Check if there is an image data in the point coordinates
-      // p.intersects(image.geometry())
-      // Problem: The result of above code is not valid in client-side 
-      
+      // Limpiar el panel de elementos antiguos
       inspector.clear();
-      // var dot = ui.Map.Layer(p, {color: 'FFFFFF'}, 'clicked location');
-      // // Add the dot as the second layer, so it shows up on top of the composite.
-      // ui.Map().layers().set(2, dot);
-      // var dot = Map.addLayer(p, {color: 'FFFFFF'}, 'clicked location');
-      
+
+      // Mostrar el NDVI
       if (app.vis.ndvi.getValue()){
-        
-        
+        // Seleccoinar imgs. sobre el punto
         var col = ee.ImageCollection(app.COLLECTION_ID).filterBounds(p); 
-        
+        // Calcular el NDVI
         var getNDVI = function(img){
-          return img.normalizedDifference(['B8','B4']).copyProperties(img, ['system:time_start']);
+          var ndvi = img.normalizedDifference(['B8','B4']).rename("NDVI");
+          // IMPORTANTE: Mantener la propiedad "time_start" para poder generar el chart
+          return ndvi.copyProperties(img, ['system:time_start']);
         };
         /*
         // TODO: Compute one NDV every 3 months
@@ -499,6 +490,7 @@ app.createHelpers = function() {
 /** Creates the app constants. */
 app.createConstants = function() {
   app.COLLECTION_ID = 'COPERNICUS/S2_SR_HARMONIZED';
+  app.CORINE_ID = 'COPERNICUS/CORINE/V20/100m/2018';
   app.IMAGES = ee.Dictionary();
   app.SECTION_STYLE = {margin: '20px 0 0 0'};
   app.HELPER_TEXT_STYLE = {
