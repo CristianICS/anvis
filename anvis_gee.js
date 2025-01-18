@@ -395,52 +395,63 @@ app.createHelpers = function() {
 
       // Mostrar el NDVI
       if (app.vis.ndvi.getValue()){
-        // Seleccoinar imgs. sobre el punto
+        
+        // Seleccinar imgs. sobre el punto
         var col = ee.ImageCollection(app.COLLECTION_ID).filterBounds(p); 
-        // Calcular el NDVI
+        // Func. para calcular el NDVI
         var getNDVI = function(img){
           var ndvi = img.normalizedDifference(['B8','B4']).rename("NDVI");
           // IMPORTANTE: Mantener la propiedad "time_start" para poder generar el chart
           return ndvi.copyProperties(img, ['system:time_start']);
         };
+
+        // En un primer momento, se derivaba una imgn. por mes
+        // https://gis.stackexchange.com/a/465619/240994
+        // Problema: En una serie larga de imgns. se quedaba sin tiempo de computación
+        var ndvi = col.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',10))
+          .map(maskS2clouds)
+          .map(getNDVI)
+          .map(function(img){
+            var date = ee.Date(ee.Number(img.get("system:time_start")));
+            var m = ee.Number(date.get('month'));
+            var y = ee.Number(date.get('year'));
+            return img.set({'month': m, 'year': y})
+          });
+
+        var months = ee.List.sequence(1, 12)
+        var years = ee.List.sequence(2018, 2020)
+
         /*
-        // TODO: Compute one NDV every 3 months
-        var ndviForYear = function(year) {
-          var startDate = ee.Date.fromYMD(year, 1, 1);
-          
-          var make_datelist = function (n) {
-            return startDate.advance(n, "month");
-          };
-          
-          // have start date of every month
-          var months = ee.List.sequence(1,12,3).map(make_datelist); 
-        
-          var computeNDVImonthly = function (d1) {
-            var start = ee.Date(d1);
-            var end = start.advance(3, "month");
-            var date_range = ee.DateRange(start, end);
-            var col_f = col.filterDate(date_range).reduce(ee.Reducer.mean());
-            return ee.Image(getNDVI(col_f));
-          };
-          
-          return months.map(computeNDVImonthly);
-        };
-        var ndvi = ee.ImageCollection(ee.List.sequence(2018, 2023).map(ndviForYear).flatten());
-        var ndviChart = ui.Chart.image.series(
-          ndvi,
-          p, ee.Reducer.mean(), 20);
-        */
-        var ndvi = col.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',10)).map(maskS2clouds).map(getNDVI);
+        var ndvi_byYearMonth = ee.ImageCollection.fromImages(
+          years.map(function(y){
+            return months.map(function(m){
+              var imgs = ndvi.filterMetadata('year', 'equals', y)
+                              .filterMetadata('month', 'equals', m)
+              // Construct new system:time_start
+              var time_start = ee.Date.fromYMD(y, m, 1).millis();
+              // return imgs.select('NDVI').mean()
+                    // .set('system:time_start', time_start)
+              return imgs.select('NDVI').set('system:time_start', time_start)
+            })
+          }).flatten()
+        )
         
         var ndviChart = ui.Chart.image.doySeriesByYear({
           imageCollection: ndvi, 
-          bandName: 'nd',  
+          bandName: 'NDVI',  
           region: p,
           regionReducer: ee.Reducer.mean(), 
           scale: 70,
           sameDayReducer: ee.Reducer.mean()
         });
-        ndviChart.setChartType('LineChart');
+        */
+        var ndviChart = ui.Chart.image.series({
+          imageCollection: ndvi.select('NDVI'), 
+          region: p,
+          reducer: ee.Reducer.mean(), 
+          scale: 100 // Agilizar el cálculo
+        });
+        // ndviChart.setChartType('LineChart');
         ndviChart.setOptions({
           title: 'Serie de NDVI',
           // vAxis: {title: 'NDVI'}
@@ -449,9 +460,9 @@ app.createHelpers = function() {
         inspector.widgets().set(2,ndviChart);
         
       } else {
-        
+        // Crear chart con la firma espectral del punto
         var wavelengths = ['494','560','665','704','740','780','835','864','945','1612','2200']
-        // Make a chart from the time series.
+        
         var wChart = ui.Chart.image.regions({
           image: image.select(['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B8A', 'B9', 'B11', 'B12'], wavelengths),
           regions: p,
@@ -463,14 +474,16 @@ app.createHelpers = function() {
           title: 'Signatura espectral',
           vAxis: {
             title: 'Reflectividad'
+            // Modificar el eje Y para establecer siempre los mismos valores min/max
             // viewWindow: {min: 0, max: 1}
           },
           hAxis: {title: 'nm'}
         });
+        
         inspector.widgets().set(2,wChart);
       }
       
-      // // Add a button to hide the Panel.
+      // Add a button to close the Panel
       inspector.add(ui.Button({
         label: 'Close',
         onClick: function() {
@@ -487,7 +500,7 @@ app.createHelpers = function() {
   
 };
 
-/** Creates the app constants. */
+// Crear las constantes de la APP (variables globales)
 app.createConstants = function() {
   app.COLLECTION_ID = 'COPERNICUS/S2_SR_HARMONIZED';
   app.CORINE_ID = 'COPERNICUS/CORINE/V20/100m/2018';
@@ -538,7 +551,7 @@ app.createConstants = function() {
   };
 };
 
-/** Creates the application interface. */
+// Iniciar la APP
 app.boot = function() {
   app.createConstants();
   app.createHelpers();
@@ -550,7 +563,6 @@ app.boot = function() {
       app.picker.panel,
       app.vis.panel,
       app.lucas.panel
-      // app.export.panel
     ],
     style: {width: '320px', padding: '8px'}
   });
