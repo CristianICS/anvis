@@ -217,7 +217,7 @@ app.createHelpers = function() {
       app.picker.select,
       app.picker.centerButton,
       app.picker.highPass,
-      app.export.button
+      app.lucas.select
     ];
     loadDependentWidgets.forEach(function(widget) {
       widget.setDisabled(enabled);
@@ -246,7 +246,7 @@ app.createHelpers = function() {
     });
 
     // Seleccionar la imgn. a mostrar en el visor
-    var collection = ee.ImageCollection(app.COLLECTION_ID);
+    var collection = ee.ImageCollection(app.COLLECTION_ID)
       // Filtrar por las coordenadas del centro del mapa
       .filterBounds(Map.getCenter());
 
