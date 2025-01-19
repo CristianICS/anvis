@@ -1,5 +1,6 @@
 // Visor con las herramientas básicas para interpretar
 // cubiertas mediante imgs. de TDT: Sentinel 2
+var LUCAS = ee.FeatureCollection("projects/s-correction/assets/lucas_samples")
 
 // Add puntos con verdad terreno
 var LUCAS = ee.FeatureCollection('JRC/LUCAS_HARMO/THLOC/V1')
@@ -15,39 +16,10 @@ var LUCAS = ee.FeatureCollection('JRC/LUCAS_HARMO/THLOC/V1')
     'file_path_gisco_west'
   ]);
 
-/**
- * Aplicar máscara de nubes
- * ========================
- * Utiliza la banda QA de Sentinel-2
- * @param {ee.Image} image
- * @return {ee.Image} imgn Sentinel-2 sin nubes
- */
-function maskS2clouds(image) {
-  // Band with quality info.
-  var qa = image.select('QA60');
-
-  // Bits 10 and 11 are clouds and cirrus, respectively.
-  var cloudBitMask = 1 << 10;
-  var cirrusBitMask = 1 << 11;
-
-  // Both flags should be set to zero, indicating clear conditions.
-  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
-      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
-
-  return image
-    .updateMask(mask)
-    // Mantener info. de la imgn. que se utiliza en el script
-    .copyProperties(image, ['system:index', 'CLOUDY_PIXEL_PERCENTAGE']);
-}
-
-// Convertir valores enteros en los valores originales de reflectividad
-// Aplicar el "scale factor"
-function scaleFactor(image) {
-  return image
-    .divide(10000)
-    // Mantener info. de la imgn. que se utiliza en el script
-    .copyProperties(image, ['system:index', 'CLOUDY_PIXEL_PERCENTAGE']);
-}
+// Crear la lista de clases LC de LUCAS
+var lucasLClabels = ee.List(LUCAS
+    .reduceColumns(ee.Reducer.toList(), ['lc1_label'])
+    .get('list')).distinct();
 
 // Iniciar el objeto donde se incluyen las funciones de la app.
 var app = {}; 
@@ -73,7 +45,7 @@ app.createPanels = function() {
 
   // Filtros de la colección
   app.filters = {
-    cloudMask: ui.Checkbox({label: 'Aplicar mascara de nubes', value: false}),
+    cloudMask: ui.Checkbox({label: 'Aplicar máscara de nubes', value: false}),
     startDate: ui.Textbox('YYYY-MM-DD', '2020-05-01'),
     endDate: ui.Textbox('YYYY-MM-DD', '2020-09-01'),
     cloudFilter: ui.Slider({min: 0, max: 1, step: 0.1, value: 0.5, style: {stretch: 'horizontal'}}),
@@ -101,10 +73,10 @@ app.createPanels = function() {
     style: app.SECTION_STYLE
   });
 
-  // Seleccón de las imágenes
+  // Selección de las imágenes
   app.picker = {
     select: ui.Select({
-      placeholder: 'Selecciona un ID',
+      placeholder: 'Selecciona una fecha',
       // Cuando una imgn. se selecciona, actualiza el mapa para incluirla
       onChange: app.refreshMapLayer
     }),
@@ -137,10 +109,13 @@ app.createPanels = function() {
 
   // Panel con opciones de visualización
   app.vis = {
+    // Etiqueta en blanco para mostrar la descrip. de la composición
     label: ui.Label(),
     // Mostrar composiciones de color prestablecidas
     select: ui.Select({
       items: Object.keys(app.VIS_OPTIONS),
+      // Seleccionar la primera composición de color
+      value: app.VIS_OPTN_DEFAULT,
       onChange: function() {
         // Cada vez que se cambia el param, actualiza su nombre
         var option = app.VIS_OPTIONS[app.vis.select.getValue()];
@@ -162,43 +137,56 @@ app.createPanels = function() {
     widgets: [
       ui.Label('3) Visualización', {fontWeight: 'bold'}),
       app.vis.select,
-      app.vis.label,
       app.vis.ndvi,
-      ui.Label('Filtro de gamma (ajustar brillo)', app.HELPER_TEXT_STYLE), app.vis.gammaFilter
+      ui.Label('Filtro de gamma (ajustar brillo)', app.HELPER_TEXT_STYLE),
+      app.vis.gammaFilter
     ],
     style: app.SECTION_STYLE
   });
 
-  // Seleccionar la primera composición de color
-  app.vis.select.setValue(app.vis.select.items().get(0));
+  // Add una opción para mantener todas las etiquetas LUCAS
+  lucasLClabels = lucasLClabels.insert(0, "Todas");
   
   // Panel en el que se puede filtrar la BBDD LUCAS
   app.lucas = {
     select: ui.Select({
-      placeholder: 'Selecciona una categoría',
-      onChange: app.refreshMapLayer
+      placeholder: 'Cargando etiquetas ...'
     }),
+    // Botón para aplicar el filtro
+    apply: ui.Button('Aplicar', function(){
+      app.refreshMapLayer();
+    })
   };
+  
+  // Add los valores de etiquetas LUCAS al desplegable:
+  // Deben ser objetos JS de texto plano
+  lucasLClabels.evaluate(function(lbls) {
+      app.lucas.select.items().reset(lbls);
+      // Default the lucas picker to the first cls.
+      app.lucas.select.setValue(app.lucas.select.items().get(0));
+  });
   
   // Componer el panel con el filtro para la capa LUCAS
   app.lucas.panel = ui.Panel({
     widgets: [
       ui.Label('4) Filtro LUCAS', {fontWeight: 'bold'}),
+      ui.Label('Selecciona una categoría:'),
       app.lucas.select,
+      app.lucas.apply
     ],
     // Add un margen inferior elevado para que el desplegable con las
     // clases a filtrar sea mayor
     style: {margin: '20px 0 80px 0'}
   });
-  
+
 };
 
 // Crear las funciones principales
 app.createHelpers = function() {
   /**
-   * Detectar si la API esta aplicando los filtros a las imgs.
-   * En este caso, evitar que se utilicen las funciones que
-   * interactuan con las imgs. para que no haya errores.
+   * Cuando se este aplicando un cambio en la API,
+   * ocultar algunas de las funciones para que no
+   * se apliquen e interrumpan el proceso.
    * TODO: Mejorar todo el sistema de "LoadingMode"
    * @param {boolean} enabled Whether loading mode is enabled.
    */
@@ -226,24 +214,9 @@ app.createHelpers = function() {
   
   // Aplicar los filtros
   app.applyFilters = function() {
+    
     // Activar las dependencias
     app.setLoadingMode(true);
-    
-    // Seleccionar la lista de etiquetas LUCAS
-    var computedLucasCls = LUCAS
-        .reduceColumns(ee.Reducer.toList(), ['lc1_label'])
-        .get('list');
-    // Add una opción para mantener todas las etiquetas LUCAS
-    computedLucasCls = ee.List(computedLucasCls).insert(0, "Ninguno");
-    // Seleccionar el conjunto de etiquetas (sin repeticiones)
-    ee.List(computedLucasCls).distinct().evaluate(
-      // Incluirlas en la selección del filtro LUCAS
-      function(cls) {
-        // Update lucas picker with the given list of cls.
-        app.lucas.select.items().reset(cls);
-        // Default the lucas picker to the first cls.
-        app.lucas.select.setValue(app.lucas.select.items().get(0));
-    });
 
     // Seleccionar la imgn. a mostrar en el visor
     var collection = ee.ImageCollection(app.COLLECTION_ID)
@@ -265,9 +238,8 @@ app.createHelpers = function() {
     var end = app.filters.endDate.getValue();
     if (end) end = ee.Date(end);
     if (start) collection = collection.filterDate(start, end);
-
     // Obtener una lista con los ids del conjunto de imgs. filtradas
-    var computedIds = filtered
+    var computedIds = collection
         .limit(app.IMAGE_COUNT_LIMIT)
         .reduceColumns(ee.Reducer.toList(), ['system:index'])
         .get('list');
@@ -293,6 +265,7 @@ app.createHelpers = function() {
       app.picker.select.setValue(app.picker.select.items().get(0));
     });
     
+    app.setLoadingMode(false);
   };
   
   /** Actualizar el mapa para aplicar los cambios los paneles de filtros */
@@ -354,15 +327,15 @@ app.createHelpers = function() {
 
     // Cargar los puntos LUCAS con el valor de Land Cover seleccionado
     var lucasId = app.lucas.select.getValue();
-    
-    if (lucasId != "Ninguno") {
-      Map.addLayer(LUCAS.filter(ee.Filter.eq('LC_LABEL', lucasId)), {}, 'BBDD LUCAS (2018)');
+    if (lucasId != "Todas") {
+      Map.addLayer(LUCAS.filter(ee.Filter.eq('lc1_label', lucasId)), {}, 'BBDD LUCAS (2018)');
     } else {
-      Map.addLayer(LUCAS, {}, 'BBDD LUCAS (2018)');
+      Map.addLayer(LUCAS, {}, 'BBDD LUCAS (2018)', false);
     }
+    
     // Add CORINE Land Cover
     var CORINE = ee.Image(app.CORINE_ID).select('landcover');
-    Map.addLayer(CORINE, {}, 'CORINE Land Cover');
+    Map.addLayer(CORINE, {}, 'CORINE Land Cover (2018)', false);
     
     // Cambiar la apariencia del cursor sobre el mapa
     Map.style().set('cursor', 'crosshair');
@@ -504,14 +477,13 @@ app.createHelpers = function() {
 app.createConstants = function() {
   app.COLLECTION_ID = 'COPERNICUS/S2_SR_HARMONIZED';
   app.CORINE_ID = 'COPERNICUS/CORINE/V20/100m/2018';
-  app.IMAGES = ee.Dictionary();
   app.SECTION_STYLE = {margin: '20px 0 0 0'};
   app.HELPER_TEXT_STYLE = {
       margin: '8px 0 -3px 8px',
       fontSize: '12px',
       color: 'gray'
   };
-  app.IMAGE_COUNT_LIMIT = 50;
+  app.IMAGE_COUNT_LIMIT = 20;
   app.VIS_OPTIONS = {
     'Color natural (B4/B3/B2)': {
       description: 'Los elementos de la imagen adquieren colores similares ' +
@@ -549,6 +521,7 @@ app.createConstants = function() {
       visParams: {min: 0, max: 0.3, bands: ['B12', 'B8', 'B2']}
     }
   };
+  app.VIS_OPTN_DEFAULT = 'Color natural (B4/B3/B2)';
 };
 
 // Iniciar la APP
@@ -566,12 +539,44 @@ app.boot = function() {
     ],
     style: {width: '320px', padding: '8px'}
   });
+
   Map.setCenter(-0.76, 41.11, 9);
   ui.root.insert(0, main);
   app.applyFilters();
 };
 
+/**
+ * Aplicar máscara de nubes
+ * ========================
+ * Utiliza la banda QA de Sentinel-2
+ * @param {ee.Image} image
+ * @return {ee.Image} imgn Sentinel-2 sin nubes
+ */
+function maskS2clouds(image) {
+  // Band with quality info.
+  var qa = image.select('QA60');
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+  return image
+    .updateMask(mask)
+    // Mantener info. de la imgn. que se utiliza en el script
+    .copyProperties(image, ['system:index', 'CLOUDY_PIXEL_PERCENTAGE']);
+}
+
+// Convertir valores enteros en los valores originales de reflectividad
+// Aplicar el "scale factor"
+function scaleFactor(image) {
+  return image
+    .divide(10000)
+    // Mantener info. de la imgn. que se utiliza en el script
+    .copyProperties(image, ['system:index', 'CLOUDY_PIXEL_PERCENTAGE']);
+}
+
 app.boot();
-
-
-
