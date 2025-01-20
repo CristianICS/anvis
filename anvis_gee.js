@@ -414,7 +414,7 @@ app.createHelpers = function() {
           bandName: 'NDVI',  
           region: p,
           regionReducer: ee.Reducer.mean(), 
-          scale: 70,
+          scale: 50,
           sameDayReducer: ee.Reducer.mean()
         });
         */
@@ -422,7 +422,7 @@ app.createHelpers = function() {
           imageCollection: ndvi.select('NDVI'), 
           region: p,
           reducer: ee.Reducer.mean(), 
-          scale: 100 // Agilizar el cálculo
+          scale: 20 // Agilizar el cálculo
         });
         // ndviChart.setChartType('LineChart');
         ndviChart.setOptions({
