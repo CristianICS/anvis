@@ -1,6 +1,5 @@
 // Visor con las herramientas básicas para interpretar
 // cubiertas mediante imgs. de TDT: Sentinel 2
-var LUCAS = ee.FeatureCollection("projects/s-correction/assets/lucas_samples")
 
 // Add puntos con verdad terreno
 var LUCAS = ee.FeatureCollection('JRC/LUCAS_HARMO/THLOC/V1')
