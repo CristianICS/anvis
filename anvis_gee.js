@@ -17,7 +17,7 @@ var LUCAS = ee.FeatureCollection('JRC/LUCAS_HARMO/THLOC/V1')
 
 // Crear la lista de clases LC de LUCAS
 var lucasLClabels = ee.List(LUCAS
-    .reduceColumns(ee.Reducer.toList(), ['lc1_label'])
+    .reduceColumns(ee.Reducer.toList(), ["lc1_label"])
     .get('list')).distinct();
 
 // Iniciar el objeto donde se incluyen las funciones de la app.
@@ -109,7 +109,7 @@ app.createPanels = function() {
   // Panel con opciones de visualización
   app.vis = {
     // Etiqueta en blanco para mostrar la descrip. de la composición
-    label: ui.Label(),
+    label: ui.Label(app.VIS_DSTN_DEFAULT),
     // Mostrar composiciones de color prestablecidas
     select: ui.Select({
       items: Object.keys(app.VIS_OPTIONS),
@@ -136,6 +136,7 @@ app.createPanels = function() {
     widgets: [
       ui.Label('3) Visualización', {fontWeight: 'bold'}),
       app.vis.select,
+      app.vis.label,
       app.vis.ndvi,
       ui.Label('Filtro de gamma (ajustar brillo)', app.HELPER_TEXT_STYLE),
       app.vis.gammaFilter
@@ -327,7 +328,7 @@ app.createHelpers = function() {
     // Cargar los puntos LUCAS con el valor de Land Cover seleccionado
     var lucasId = app.lucas.select.getValue();
     if (lucasId != "Todas") {
-      Map.addLayer(LUCAS.filter(ee.Filter.eq('lc1_label', lucasId)), {}, 'BBDD LUCAS (2018)');
+      Map.addLayer(LUCAS.filter(ee.Filter.eq("lc1_label", lucasId)), {}, 'BBDD LUCAS (2018)');
     } else {
       Map.addLayer(LUCAS, {}, 'BBDD LUCAS (2018)', false);
     }
@@ -413,7 +414,7 @@ app.createHelpers = function() {
           bandName: 'NDVI',  
           region: p,
           regionReducer: ee.Reducer.mean(), 
-          scale: 50,
+          scale: 70,
           sameDayReducer: ee.Reducer.mean()
         });
         */
@@ -521,6 +522,7 @@ app.createConstants = function() {
     }
   };
   app.VIS_OPTN_DEFAULT = 'Color natural (B4/B3/B2)';
+  app.VIS_DSTN_DEFAULT = app.VIS_OPTIONS[app.VIS_OPTN_DEFAULT].description;
 };
 
 // Iniciar la APP
