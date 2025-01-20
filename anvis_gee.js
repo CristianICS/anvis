@@ -519,6 +519,18 @@ app.createConstants = function() {
     'Burned areas (B12/B8/B2)': {
       description: 'Vegetación quemada en tonos rojizos.',
       visParams: {min: 0, max: 0.3, bands: ['B12', 'B8', 'B2']}
+    },
+    'Banda del rojo (B4)': {
+      description: 'Valores de reflectividad de la banda del rojo.',
+      visParams: {min: 0, max: 0.3, bands: ['B4']}
+    },
+    'Banda del infrarrojo (B8)': {
+      description: 'Valores de reflectividad de la banda del NIR.',
+      visParams: {min: 0, max: 0.3, bands: ['B8']}
+    },
+    'Banda del SWIR (B11)': {
+      description: 'Valores de reflectividad de la banda del SWIR.',
+      visParams: {min: 0, max: 0.3, bands: ['B12']}
     }
   };
   app.VIS_OPTN_DEFAULT = 'Color natural (B4/B3/B2)';
